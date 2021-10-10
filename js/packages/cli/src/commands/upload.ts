@@ -210,7 +210,7 @@ export async function upload(
         }
       }
     },
-    10,
+    parseInt(process.env.BATCH_SIZE) || 3,
   );
 
   const keys = Object.keys(cacheContent.items);
