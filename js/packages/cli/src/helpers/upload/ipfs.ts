@@ -38,7 +38,7 @@ export async function ipfsUpload(
   });
   log.info('uploaded image for file:', image);
 
-  await sleep(500);
+  await sleep(250);
 
   const manifestJson = JSON.parse(manifestBuffer.toString('utf8'));
   manifestJson.image = mediaUrl;
@@ -58,8 +58,6 @@ export async function ipfsUpload(
       method: 'POST',
     },
   );
-
-  await sleep(500);
   const link = `https://ipfs.io/ipfs/${manifestHash}`;
   log.info('uploaded manifest: ', link);
 
