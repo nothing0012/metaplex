@@ -13,6 +13,7 @@ import log from 'loglevel';
 import { arweaveUpload } from '../helpers/upload/arweave';
 import { ipfsCreds, ipfsUpload } from '../helpers/upload/ipfs';
 import { chunks } from '../helpers/various';
+import asyncBatch from 'async-batch';
 
 export async function upload(
   files: string[],
@@ -57,8 +58,6 @@ export async function upload(
   });
 
   const images = newFiles.filter(val => path.extname(val) === EXTENSION_PNG);
-  const SIZE = images.length;
-
   const walletKeyPair = loadWalletKey(keypair);
   const anchorProgram = await loadCandyProgram(walletKeyPair, env);
 
@@ -66,7 +65,7 @@ export async function upload(
     ? new PublicKey(cacheContent.program.config)
     : undefined;
 
-  for (let i = 0; i < SIZE; i++) {
+  for (let i = 0; i < 1; i++) {
     const image = images[i];
     const imageName = path.basename(image);
     const index = imageName.replace(EXTENSION_PNG, '');
@@ -155,6 +154,64 @@ export async function upload(
       }
     }
   }
+
+  await asyncBatch(
+    images,
+    async (image: any, taskIndex: number, workerIndex: number) => {
+      const i = taskIndex;
+      const imageName = path.basename(image);
+      const index = imageName.replace(EXTENSION_PNG, '');
+
+      log.debug(`Processing file: ${i} with worker: ${workerIndex}`);
+      if (i % 50 === 0) {
+        log.info(`Processing file: ${i}`);
+      }
+
+      let link = cacheContent?.items?.[index]?.link;
+      if (!link || !cacheContent.program.uuid) {
+        const manifestPath = image.replace(EXTENSION_PNG, '.json');
+        const manifestContent = fs
+          .readFileSync(manifestPath)
+          .toString()
+          .replace(imageName, 'image.png')
+          .replace(imageName, 'image.png');
+        const manifest = JSON.parse(manifestContent);
+        const manifestBuffer = Buffer.from(JSON.stringify(manifest));
+        if (!link) {
+          try {
+            if (storage === 'arweave') {
+              link = await arweaveUpload(
+                walletKeyPair,
+                anchorProgram,
+                env,
+                image,
+                manifestBuffer,
+                manifest,
+                index,
+              );
+            } else if (storage === 'ipfs') {
+              link = await ipfsUpload(ipfsCredentials, image, manifestBuffer);
+            }
+
+            if (link) {
+              log.debug('setting cache for ', index);
+              cacheContent.items[index] = {
+                link,
+                name: manifest.name,
+                onChain: false,
+              };
+              cacheContent.authority = walletKeyPair.publicKey.toBase58();
+              saveCache(cacheName, env, cacheContent);
+            }
+          } catch (er) {
+            uploadSuccessful = false;
+            log.error(`Error uploading file ${index}`, er);
+          }
+        }
+      }
+    },
+    10,
+  );
 
   const keys = Object.keys(cacheContent.items);
   try {
